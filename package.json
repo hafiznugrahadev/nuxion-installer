@@ -1,0 +1,33 @@
+{
+  "name": "create-nuxion",
+  "version": "0.1.0",
+  "description": "Scaffold the Nuxion NestJS + Nuxt monorepo (Bun + Turbo) \u2014 bun create nuxion@latest <name>",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-nuxion": "bin/index.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "create",
+    "scaffold",
+    "template",
+    "starter-kit",
+    "monorepo",
+    "nestjs",
+    "nuxt",
+    "nuxion",
+    "bun",
+    "turbo"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hafiznugrahadev/nuxion-installer.git"
+  }
+}
