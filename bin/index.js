@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * create-nuxion — scaffold the Nuxion starter kit (NestJS + Nuxt monorepo)
+ * create-nuxion — scaffold the Nuxion starter kit (NestJS + Nuxt/Next monorepo)
  * into a brand-new project.
  *
  *   bun create nuxion@latest <project-name>
@@ -9,7 +9,8 @@
  *   1. shallow-clone the kit from GitHub into <project-name>
  *   2. throw away .git and start a fresh history — no remotes, so there is
  *      nothing to accidentally push to
- *   3. run the kit's own `scripts/init-project.ts` (rename identity, seed .env)
+ *   3. run the kit's own `scripts/init-project.ts` (rename identity, pick the
+ *      frontend variant, seed .env)
  *   4. strip kit-internal meta files (dev logs, plans, the init script itself)
  *   5. `bun install`, then the first commit
  *
@@ -23,14 +24,20 @@ import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_REPO = 'https://github.com/hafiznugrahadev/nuxion.git';
 const DEFAULT_BRANCH = 'main';
+const FRONTEND_VARIANTS = ['nuxt', 'next'];
 
 // Kit-internal files that make no sense in a scaffolded project. SPEC.md,
-// .github/, docker/ and the rest of scripts/ are kept on purpose.
+// .github/, docker/ and the rest of scripts/ are kept on purpose. AGENTS.md
+// and .agents/ describe the KIT's agent workflow (skill paths, repo-specific
+// rules) and would point at things a scaffolded project doesn't have.
 const STRIP_PATHS = [
+  '.agents',
   '.zcode',
+  'AGENTS.md',
   'docs/superpowers',
   'LESSON.md',
   'MEMORY.md',
@@ -49,24 +56,36 @@ const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
 
-const USAGE = `${bold('nuxion')} — scaffold monorepo NestJS + Nuxt dari Nuxion starter kit
+const USAGE = `${bold('nuxion')} — scaffold monorepo NestJS + Nuxt/Next dari Nuxion starter kit
 
 Pemakaian:
   bun create nuxion@latest <nama-project> [flags]
 
 Flags:
+  --frontend <v>    variant frontend: nuxt (default) atau next
   --branch <ref>    branch/tag template (default: ${DEFAULT_BRANCH})
   --repo <url>      URL clone template (default: repo publik upstream)
   --display <nama>  nama tampilan aplikasi (default: Title Case dari slug)
   --no-install      lewati bun install di akhir
   -h, --help        tampilkan bantuan ini`;
 
-function parseArgs(argv) {
+export function validateFrontendVariant(value) {
+  if (!FRONTEND_VARIANTS.includes(value)) {
+    throw new Error(`Variant frontend tidak dikenal: "${value}" — pilih nuxt atau next.`);
+  }
+  return value;
+}
+
+export function parseArgs(argv) {
   const opts = {
     dest: undefined,
     repo: DEFAULT_REPO,
     branch: DEFAULT_BRANCH,
     display: undefined,
+    // undefined = belum dipilih (default nuxt diterapkan di akhir); hanya
+    // nilai EKSPLISIT yang diteruskan ke init, supaya kit lama yang belum
+    // mengenal --frontend tidak menolak opsi tidak dikenal.
+    frontend: undefined,
     install: true,
     help: false,
   };
@@ -80,6 +99,9 @@ function parseArgs(argv) {
     else if (arg.startsWith('--branch=')) opts.branch = arg.slice('--branch='.length);
     else if (arg === '--display') opts.display = argv[++i];
     else if (arg.startsWith('--display=')) opts.display = arg.slice('--display='.length);
+    else if (arg === '--frontend') opts.frontend = validateFrontendVariant(argv[++i] ?? '');
+    else if (arg.startsWith('--frontend='))
+      opts.frontend = validateFrontendVariant(arg.slice('--frontend='.length));
     else if (arg.startsWith('--')) throw new Error(`Opsi tidak dikenal: ${arg}`);
     else if (opts.dest === undefined) opts.dest = arg;
     else throw new Error(`Argumen tidak dikenal: ${arg}`);
@@ -133,17 +155,30 @@ async function main() {
     return;
   }
 
-  // ── 1. Resolve the destination ──────────────────────────────────────────────
+  // ── 1. Resolve the destination and the frontend variant ────────────────────
   let dest = opts.dest;
-  if (dest === undefined) {
-    if (!process.stdin.isTTY) {
-      throw new Error(`Nama project wajib diisi.\n\n${USAGE}`);
-    }
+  let frontend = opts.frontend;
+  const askName = dest === undefined;
+  const askFrontend = frontend === undefined;
+  if (askName && !process.stdin.isTTY) {
+    throw new Error(`Nama project wajib diisi.\n\n${USAGE}`);
+  }
+  if ((askName || askFrontend) && process.stdin.isTTY) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     try {
-      const fallback = normalizeSlug(basename(process.cwd())) || 'my-app';
-      const answer = (await rl.question(`Nama folder project [${fallback}]: `)).trim();
-      dest = answer || fallback;
+      if (askName) {
+        const fallback = normalizeSlug(basename(process.cwd())) || 'my-app';
+        const answer = (await rl.question(`Nama folder project [${fallback}]: `)).trim();
+        dest = answer || fallback;
+      }
+      if (askFrontend) {
+        const answer = (
+          await rl.question('Frontend variant [nuxt/next] (default nuxt): ')
+        )
+          .trim()
+          .toLowerCase();
+        if (answer) frontend = validateFrontendVariant(answer);
+      }
     } finally {
       rl.close();
     }
@@ -158,6 +193,9 @@ async function main() {
     );
   }
   const display = opts.display ?? titleCase(slug);
+  // `frontend` stays undefined until the user picks (flag or prompt); the
+  // default only affects the banner below and never reaches init.
+  const frontendLabel = frontend ?? 'nuxt';
 
   // ── 2. Preconditions ────────────────────────────────────────────────────────
   if (!runOut('git', ['--version'])) throw new Error('git tidak ditemukan di PATH.');
@@ -167,7 +205,7 @@ async function main() {
     throw new Error(`Folder "${dest}" sudah ada dan tidak kosong. Pilih nama lain atau kosongkan dulu.`);
   }
 
-  console.log(bold(`\nScaffold ${display} (${slug}) dari Nuxion\n`));
+  console.log(bold(`\nScaffold ${display} (${slug}) dari Nuxion — frontend: ${frontendLabel}\n`));
 
   // ── 3. Download the template ────────────────────────────────────────────────
   console.log(dim(`→ clone ${opts.repo} (${opts.branch})…`));
@@ -192,13 +230,15 @@ async function main() {
   console.log(green('✔ riwayat git baru dibuat — tanpa remote (tidak bisa salah push ke repo kit)'));
 
   // ── 5. Let the kit rename itself ────────────────────────────────────────────
-  // Reuses the tested init script: identity rename, slug validation, .env
-  // seeding with a generated JWT secret, and its own next-steps output.
-  // --force skips its uncommitted-changes guard, which can never pass here:
-  // a repo with staged files but no HEAD reports every file as staged.
-  console.log(dim('→ jalankan init (rename identitas + tulis .env)…'));
+  // Reuses the tested init script: identity rename, frontend-variant swap,
+  // slug validation, .env seeding with a generated JWT secret, and its own
+  // next-steps output. --force skips its uncommitted-changes guard, which can
+  // never pass here: a repo with staged files but no HEAD reports every file
+  // as staged.
+  console.log(dim('→ jalankan init (rename identitas + pilih variant + tulis .env)…'));
   const initArgs = ['run', 'scripts/init-project.ts', '--name', slug, '--yes', '--force'];
   if (opts.display !== undefined) initArgs.push('--display', opts.display);
+  if (frontend !== undefined) initArgs.push('--frontend', frontend);
   if (run('bun', initArgs, dest) !== 0) {
     throw new Error(`init gagal — folder ${dest} dibiarkan untuk inspeksi (lihat output di atas).`);
   }
@@ -223,19 +263,24 @@ async function main() {
 
   // ── 9. Summary ──────────────────────────────────────────────────────────────
   console.log(`
-${green('✔')} ${bold(display)} siap di ./${basename(dest)}
+${green('✔')} ${bold(display)} siap di ./${basename(dest)} ${dim(`(frontend: ${frontendLabel})`)}
 
 ${bold('Langkah berikutnya')}
   cd ${basename(dest)}
   docker compose up -d                                        ${dim('# Postgres + Redis')}
-  bun run --filter @${slug}/api prisma:generate               ${dim('# generated client masih menyimpan nama lama')}
-  bun run --filter @${slug}/api prisma:deploy                 ${dim('# apply migrations')}
+  bun run --filter @${slug}/api db:migrate                    ${dim('# apply drizzle migrations')}
   bun run --filter @${slug}/api db:seed
   bun run serve                                               ${dim('# API + Web')}
 `);
 }
 
-main().catch((error) => {
-  console.error(red(`✖ ${error.message}`));
-  process.exit(1);
-});
+// Guarded so the exported helpers can be imported by `node --test` without
+// running the scaffold.
+const isDirectRun =
+  process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(red(`✖ ${error.message}`));
+    process.exit(1);
+  });
+}

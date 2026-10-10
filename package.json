@@ -1,14 +1,17 @@
 {
   "name": "create-nuxion",
-  "version": "0.1.0",
-  "description": "Scaffold the Nuxion NestJS + Nuxt monorepo (Bun + Turbo) \u2014 bun create nuxion@latest <name>",
+  "version": "0.2.0",
+  "description": "Scaffold the Nuxion NestJS + Nuxt/Next monorepo (Bun + Turbo) \u2014 bun create nuxion@latest <name>",
   "license": "MIT",
   "type": "module",
   "bin": {
     "create-nuxion": "bin/index.js"
   },
+  "scripts": {
+    "test": "node --test bin/index.test.js"
+  },
   "files": [
-    "bin",
+    "bin/index.js",
     "README.md"
   ],
   "engines": {
@@ -22,6 +25,7 @@
     "monorepo",
     "nestjs",
     "nuxt",
+    "nextjs",
     "nuxion",
     "bun",
     "turbo"
